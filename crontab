@@ -1,0 +1,1 @@
+55 5,9,13,17 * * * python /app/refine.py -r >> ./app/log/cronlog
