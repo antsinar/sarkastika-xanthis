@@ -34,7 +34,8 @@ PROKAT = "203"
 
 # OTHER
 PAGE_URL = "https://xanthi.citybus.gr/el/stops"
-API_URL = "http://localhost:8000"
+API_URL = "https://sarkastika-xanthis.fly.dev"
+#API_URL = "http://localhost:8000"
 ROUTE = "07"
 REFRESH_HOURS = 4
 TZ = tz.gettz('Europe / Berlin')

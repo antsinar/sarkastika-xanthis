@@ -5,7 +5,7 @@ import requests
 from os import path
 from datetime import datetime, timedelta
 
-import CONSTANTS
+from app import CONSTANTS
 
 def refresh() -> str:
 	"""
@@ -42,7 +42,7 @@ def free() -> int:
 
 def generate() -> int:
 	req = requests.post(
-				f"{CONSTANTS.API_URL}/generate/"
+				f"{CONSTANTS.API_URL}/generate"
 			)
 
 	if req.status_code == 200:

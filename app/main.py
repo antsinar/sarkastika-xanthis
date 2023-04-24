@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import CONSTANTS
 from app.utils import fetch_token, match_stop, match_day
+from app.refine import generate, refresh
 
 
 app = FastAPI()
@@ -31,7 +32,22 @@ app.add_middleware(
 
 
 @app.get("/")
-async def get_root():
+async def get_root(bgTask: BackgroundTasks):
+	today = datetime.now().replace(tzinfo=CONSTANTS.TZ).strftime("%A-%d-%m-%Y")
+
+	if not path.isfile(f"./app/logs/{today}.json"):
+		bgTask.add_task(generate)
+
+	refresh_times = [
+		"5:55",
+		"9:55",
+		"13:55",
+		"17:55",
+	]
+
+	if datetime.now().replace(tzinfo=CONSTANTS.TZ).strftime("%H:%M") in refresh_times:
+		bgTask.add_task(refresh)
+
 	return {
 		"available_routes": [
 				"GET /help/info",
@@ -99,6 +115,66 @@ async def get_help_codes_stops():
 	}
 
 
+
+@app.post("/generate")
+def generate_day_schedule():
+	"""
+	Fetches day schedule and savse it on disk for faster access and lower server network usage 
+	Runs automatically @ 6 AM (+-5) minutes every day
+	Refines itself every X hours
+	No reason for a user to use this endpoint, it will return an error response
+	"""
+	today = datetime.now().replace(tzinfo=CONSTANTS.TZ).strftime("%A-%d-%m-%Y")
+	
+	if(path.isfile(f"./app/logs/{today}.json")):
+		return {"error": "today's schedule has already been registered."}
+	
+	token = fetch_token(CONSTANTS.PAGE_URL)
+
+	headers = {
+		"Content-Type": "application/json; charset=utf-8",
+		'Authorization': f"Bearer {token}"
+	}
+
+	day = today.replace(' ','').split('-')[0]
+	day_code = match_day(day)
+	if type(day_code) != int:
+		return {"error": "Error processing date -> day"}
+
+	valid = []
+	for stop in CONSTANTS.LINE_PATH:
+		url = f"https://rest.citybus.gr/api/v1/el/104/trips/stop/{stop}/day/{day}"
+
+		req = requests.get(
+				url,
+				headers=headers,
+			)
+		
+		if req.status_code != 200:
+			return {"error": "failed to fetch trip data"}
+
+		resp = json.loads(req.text)
+
+		for obj in resp:
+			if obj["routeCode"] != CONSTANTS.ROUTE:
+				continue
+			try:
+				valid.append({
+					"stop": stop,
+					"route": obj["routeCode"],
+					"time": obj['tripTime']
+					})
+			except KeyError:
+				continue
+
+	with open(f"./app/logs/{today}.json", 'w', encoding="utf-8") as day_schedule:
+		for el in valid:
+			json.dump(el, day_schedule, ensure_ascii=False)
+			day_schedule.write(',')
+		
+	return {"message": "succesfully created today's log file"}
+
+
 @app.get("/next/{stop}")
 def get_next(stop: str):
 	"""
@@ -109,7 +185,7 @@ def get_next(stop: str):
 		return {"error": "Υπάρχει σφάλμα στον κωδικό της στάσης"}
 
 	today = datetime.now().replace(tzinfo=CONSTANTS.TZ).strftime("%A-%d-%m-%Y")
-	
+
 	try:	
 		t_schedule = {}
 		with open(f"app/logs/{today}.json") as schedule:
@@ -117,7 +193,8 @@ def get_next(stop: str):
 			
 	except FileNotFoundError:
 		return {"error": "Το σημερινό πρόγραμμα για κάποιο λόγο δεν είναι διαθέσιμο. Παρακαλώ επικοινωνήστε άμεσα με τον διαχειριστή."}
-	
+		
+
 	now = datetime.now().replace(tzinfo=CONSTANTS.TZ).strftime("%A %m %Y - %H:%M:%S").split('-')
 	day = now[0].split(' ')[0]
 	day_code = match_day(day)
@@ -233,62 +310,3 @@ def get_stops_by_day(stop: str, day: int) -> dict:
 		'stop': name,
 		'arrivals': valid
 	}
-	
-
-@app.post("/generate")
-def generate_day_schedule():
-	"""
-	Fetches day schedule and savse it on disk for faster access and lower server network usage 
-	Runs automatically @ 6 AM (+-5) minutes every day
-	Refines itself every X hours
-	No reason for a user to use this endpoint, it will return an error response
-	"""
-	today = datetime.now().replace(tzinfo=CONSTANTS.TZ).strftime("%A-%d-%m-%Y")
-	
-	if(path.isfile(f"./app/logs/{today}.json")):
-		return {"error": "today's schedule has already been registered."}
-	
-	token = fetch_token(CONSTANTS.PAGE_URL)
-
-	headers = {
-		"Content-Type": "application/json; charset=utf-8",
-		'Authorization': f"Bearer {token}"
-	}
-
-	day = today.replace(' ','').split('-')[0]
-	day_code = match_day(day)
-	if type(day_code) != int:
-		return {"error": "Error processing date -> day"}
-
-	valid = []
-	for stop in CONSTANTS.LINE_PATH:
-		url = f"https://rest.citybus.gr/api/v1/el/104/trips/stop/{stop}/day/{day}"
-
-		req = requests.get(
-				url,
-				headers=headers,
-			)
-		
-		if req.status_code != 200:
-			return {"error": "failed to fetch trip data"}
-
-		resp = json.loads(req.text)
-
-		for obj in resp:
-			if obj["routeCode"] != CONSTANTS.ROUTE:
-				continue
-			try:
-				valid.append({
-					"stop": stop,
-					"route": obj["routeCode"],
-					"time": obj['tripTime']
-					})
-			except KeyError:
-				continue
-
-	with open(f"./app/logs/{today}.json", 'w', encoding="utf-8") as day_schedule:
-		for el in valid:
-			json.dump(el, day_schedule, ensure_ascii=False)
-			day_schedule.write(',')
-		
-	return {"message": "succesfully created today's log file"}

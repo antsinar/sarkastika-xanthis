@@ -2,6 +2,7 @@ import requests
 
 from bs4 import BeautifulSoup
 from app import CONSTANTS
+from app.refine import generate
 
 def fetch_token(url: str) -> dict:
 	"""
